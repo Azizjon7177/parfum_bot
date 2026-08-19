@@ -20,7 +20,9 @@ load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
 DIRECTOR_ID = int(os.getenv("DIRECTOR_ID", "0") or 0)
 
-DB_NAME = "parfum.db"
+DATA_DIR = os.getenv("DATA_DIR", ".")
+os.makedirs(DATA_DIR, exist_ok=True)
+DB_NAME = os.path.join(DATA_DIR, "parfum.db")
 
 if not TOKEN:
     raise ValueError("❌ BOT_TOKEN .env faylida topilmadi!")
