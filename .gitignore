@@ -1,0 +1,4 @@
+.env
+parfum.db
+__pycache__/
+*.pyc

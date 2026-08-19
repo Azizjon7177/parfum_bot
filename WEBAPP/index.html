@@ -1,0 +1,193 @@
+[17.08.2026 13:01] Азизжон: <!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    >
+
+    <title>Hisobchi AI</title>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div id="app">
+
+    <!-- HEADER -->
+    <header class="header">
+        <div>
+            <div class="logo">Hisobchi AI</div>
+            <div class="subtitle">Biznesingiz nazorat ostida</div>
+        </div>
+
+        <button class="avatar" onclick="showMessage('Profil')">
+            👤
+        </button>
+    </header>
+
+
+    <!-- BALANCE -->
+    <section class="balance-card">
+
+        <div class="balance-title">
+            Umumiy balans
+        </div>
+
+        <div id="balance" class="balance">
+            0 so'm
+        </div>
+
+        <div class="balance-row">
+
+            <div>
+                <span class="income-label">Kirim</span>
+                <strong id="income">0 so'm</strong>
+            </div>
+
+            <div>
+                <span class="expense-label">Chiqim</span>
+                <strong id="expense">0 so'm</strong>
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- QUICK ACTIONS -->
+    <section class="section">
+
+        <h2>Tezkor amallar</h2>
+
+        <div class="quick-grid">
+
+            <button class="action income" onclick="openTransaction('income')">
+                <span>＋</span>
+                <small>Kirim</small>
+            </button>
+
+            <button class="action expense" onclick="openTransaction('expense')">
+                <span>－</span>
+                <small>Chiqim</small>
+            </button>
+
+            <button class="action" onclick="openPage('products')">
+                <span>📦</span>
+                <small>Mahsulotlar</small>
+            </button>
+
+            <button class="action" onclick="openPage('reports')">
+                <span>📊</span>
+                <small>Hisobot</small>
+            </button>
+
+        </div>
+
+    </section>
+
+
+    <!-- MAIN MENU -->
+    <section class="section">
+
+        <h2>Boshqaruv</h2>
+
+        <div class="menu">
+
+            <button onclick="openPage('products')">
+                <span class="menu-icon">📦</span>
+
+                <div>
+                    <strong>Mahsulotlar</strong>
+                    <small>Ombor va mahsulotlar</small>
+                </div>
+
+                <span class="arrow">›</span>
+            </button>
+
+
+            <button onclick="openPage('transactions')">
+                <span class="menu-icon">💰</span>
+
+                <div>
+                    <strong>Kirim / Chiqim</strong>
+                    <small>Moliyaviy harakatlar</small>
+                </div>
+
+                <span class="arrow">›</span>
+            </button>
+
+
+            <button onclick="openPage('clients')">
+                <span class="menu-icon">👥</span>
+
+                <div>
+                    <strong>Mijozlar</strong>
+                    <small>Mijozlar bazasi</small>
+                </div>
+
+                <span class="arrow">›</span>
+            </button>
+
+
+            <button onclick="openPage('reports')">
+                <span class="menu-icon">📈</span>
+
+                <div>
+                    <strong>Hisobotlar</strong>
+                    <small>Kunlik va oylik natijalar</small>
+                </div>
+
+                <span class="arrow">›</span>
+            </button>
+
+
+            <button onclick="openPage('ai')">
+                <span class="menu-icon">🤖</span>
+
+                <div>
+                    <strong>AI yordamchi</strong>
+                    <small>Hisobchi AI</small>
+                </div>
+
+                <span class="arrow">›</span>
+            </button>
+
+        </div>
+
+    </section>
+
+
+    <!-- BOTTOM NAV -->
+    <nav class="bottom-nav">
+
+        <button class="active" onclick="showHome()">
+            <span>🏠</span>
+            <small>Bosh sahifa</small>
+        </button>
+
+        <button onclick="openPage('products')">
+            <span>📦</span>
+            <small>Mahsulotlar</small>
+        </button>
+[17.08.2026 13:01] Азизжон: <button onclick="openPage('reports')">
+            <span>📊</span>
+            <small>Hisobot</small>
+        </button>
+
+        <button onclick="openPage('settings')">
+            <span>⚙️</span>
+            <small>Sozlamalar</small>
+        </button>
+
+    </nav>
+
+</div>
+
+
+<script src="script.js"></script>
+
+</body>
+</html>
