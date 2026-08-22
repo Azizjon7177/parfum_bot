@@ -328,6 +328,11 @@ class SellerRequest(StatesGroup):
     shop_number = State()
 
 
+class InventoryOperation(StatesGroup):
+
+    quantity = State()
+
+
 # =========================================================
 # YORDAMCHI FUNKSIYALAR
 # =========================================================
@@ -335,6 +340,15 @@ class SellerRequest(StatesGroup):
 def is_director(message: types.Message):
 
     return message.from_user.id == DIRECTOR_ID
+
+
+def can_access_shop(telegram_id, shop_id):
+
+    if telegram_id == DIRECTOR_ID:
+        return True
+
+    user = get_user(telegram_id)
+    return bool(user and user[3] == "seller" and user[4] == shop_id)
 
 
 def get_user(telegram_id):
@@ -370,6 +384,104 @@ def get_shop(shop_id):
     conn.close()
 
     return row
+
+
+def get_or_create_product(category, name):
+
+    conn = db_connect()
+
+    conn.execute(
+        """
+        INSERT INTO products (name, category, created_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(name) DO NOTHING
+        """,
+        (name, category, now())
+    )
+
+    product = conn.execute(
+        "SELECT id, name FROM products WHERE name = ?",
+        (name,)
+    ).fetchone()
+
+    conn.commit()
+    conn.close()
+
+    return product
+
+
+def get_shop_stock(shop_id):
+
+    conn = db_connect()
+
+    rows = conn.execute(
+        """
+        SELECT products.name, stock.quantity
+        FROM stock
+        JOIN products ON products.id = stock.product_id
+        WHERE stock.shop_id = ? AND stock.quantity > 0
+        ORDER BY products.name
+        """,
+        (shop_id,)
+    ).fetchall()
+
+    conn.close()
+
+    return rows
+
+
+def change_stock(shop_id, category, product_name, quantity, operation, user_id):
+
+    product_id, product_name = get_or_create_product(category, product_name)
+    conn = db_connect()
+
+    try:
+        conn.execute("BEGIN")
+
+        row = conn.execute(
+            """
+            SELECT quantity FROM stock
+            WHERE shop_id = ? AND product_id = ?
+            """,
+            (shop_id, product_id)
+        ).fetchone()
+
+        current_quantity = row[0] if row else 0
+        delta = quantity if operation == "income" else -quantity
+
+        if current_quantity + delta < 0:
+            conn.rollback()
+            return False, current_quantity, product_name
+
+        conn.execute(
+            """
+            INSERT INTO stock (shop_id, product_id, quantity, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(shop_id, product_id)
+            DO UPDATE SET quantity = excluded.quantity,
+                          updated_at = excluded.updated_at
+            """,
+            (shop_id, product_id, current_quantity + delta, now())
+        )
+
+        conn.execute(
+            """
+            INSERT INTO movements
+            (shop_id, product_id, movement_type, quantity, seller_id, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (shop_id, product_id, operation, quantity, user_id, "", now())
+        )
+
+        conn.commit()
+        return True, current_quantity + delta, product_name
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
 
 
 def get_shops():
@@ -1583,59 +1695,154 @@ async def back_to_categories(message: types.Message):
 
  await products_message(message)
 
-@dp.message(F.text == "📥 Кирим")
-async def income_message(
-    message: types.Message
-):
+OPERATION_TITLES = {"income": "📥 Кирим", "sale": "📤 Сотув", "writeoff": "🗑 Списание"}
 
-    await message.answer(
-        "📥 Кирим модули кейинги босқичда "
-        "уланади."
-    )
+
+def shop_keyboard(action):
+    return types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text=name, callback_data=f"shop:{action}:{shop_id}")]
+        for shop_id, name in get_shops()
+    ])
+
+
+def category_keyboard(action, shop_id):
+    return types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text=category, callback_data=f"invcat:{action}:{shop_id}:{index}")]
+        for index, category in enumerate(PRODUCTS)
+    ])
+
+
+async def choose_shop_or_category(message, action):
+    if is_director(message):
+        if not get_shops():
+            await message.answer("⚠️ Аввал камида битта дўкон қўшинг.")
+            return
+        await message.answer(f"{OPERATION_TITLES[action]} учун дўконни танланг:", reply_markup=shop_keyboard(action))
+        return
+
+    user = get_user(message.from_user.id)
+    if not user or user[3] != "seller" or not user[4]:
+        await message.answer("⚠️ Сизга дўкон бириктирилмаган.")
+        return
+    await message.answer(f"{OPERATION_TITLES[action]} учун категорияни танланг:", reply_markup=category_keyboard(action, user[4]))
+
+
+@dp.message(F.text == "📥 Кирим")
+async def income_message(message: types.Message):
+    await choose_shop_or_category(message, "income")
 
 
 @dp.message(F.text == "📤 Сотув")
-async def sale_message(
-    message: types.Message
-):
-
-    await message.answer(
-        "📤 Сотув модули кейинги босқичда "
-        "уланади."
-    )
+async def sale_message(message: types.Message):
+    await choose_shop_or_category(message, "sale")
 
 
 @dp.message(F.text == "🗑 Списание")
-async def writeoff_message(
-    message: types.Message
-):
-
-    await message.answer(
-        "🗑 Списание модули кейинги босқичда "
-        "уланади."
-    )
+async def writeoff_message(message: types.Message):
+    await choose_shop_or_category(message, "writeoff")
 
 
-@dp.message(F.text == "📊 Ҳисобот")
-async def report_message(
-    message: types.Message
-):
+@dp.callback_query(F.data.startswith("shop:"))
+async def inventory_shop_callback(callback: types.CallbackQuery):
+    _, action, shop_id = callback.data.split(":")
+    if callback.from_user.id != DIRECTOR_ID:
+        await callback.answer("Рухсат йўқ", show_alert=True)
+        return
+    if action == "stock":
+        await callback.answer()
+        await show_stock(callback.message, int(shop_id))
+        return
+    if action == "report":
+        await callback.answer()
+        await show_daily_report(callback.message, int(shop_id))
+        return
+    await callback.answer()
+    await callback.message.answer(f"{OPERATION_TITLES[action]} учун категорияни танланг:", reply_markup=category_keyboard(action, int(shop_id)))
 
-    await message.answer(
-        "📊 Ҳисобот модули кейинги босқичда "
-        "уланади.\n\n"
-        "Сана бўйича ҳисобот ҳам қўшилади."
-    )
+
+@dp.callback_query(F.data.startswith("invcat:"))
+async def inventory_category_callback(callback: types.CallbackQuery):
+    _, action, shop_id, category_index = callback.data.split(":")
+    if not can_access_shop(callback.from_user.id, int(shop_id)):
+        await callback.answer("Рухсат йўқ", show_alert=True)
+        return
+    category = list(PRODUCTS)[int(category_index)]
+    keyboard = [[types.InlineKeyboardButton(text=product, callback_data=f"invproduct:{action}:{shop_id}:{category_index}:{index}")]
+                for index, product in enumerate(PRODUCTS[category])]
+    await callback.answer()
+    await callback.message.answer("Маҳсулотни танланг:", reply_markup=types.InlineKeyboardMarkup(inline_keyboard=keyboard))
+
+
+@dp.callback_query(F.data.startswith("invproduct:"))
+async def inventory_product_callback(callback: types.CallbackQuery, state: FSMContext):
+    _, action, shop_id, category_index, product_index = callback.data.split(":")
+    if not can_access_shop(callback.from_user.id, int(shop_id)):
+        await callback.answer("Рухсат йўқ", show_alert=True)
+        return
+    category = list(PRODUCTS)[int(category_index)]
+    product_name = PRODUCTS[category][int(product_index)]
+    await state.set_state(InventoryOperation.quantity)
+    await state.update_data(action=action, shop_id=int(shop_id), category=category, product_name=product_name)
+    await callback.answer()
+    await callback.message.answer(f"{product_name}\n\nМиқдорни рақам билан юборинг:", reply_markup=cancel_menu())
+
+
+@dp.message(InventoryOperation.quantity)
+async def save_inventory_operation(message: types.Message, state: FSMContext):
+    text = (message.text or "").strip()
+    if not text.isdigit() or int(text) <= 0:
+        await message.answer("❌ Миқдорни мусбат рақам билан ёзинг. Масалан: 5")
+        return
+    data = await state.get_data()
+    operation = data["action"]
+    success, remaining, product_name = change_stock(data["shop_id"], data["category"], data["product_name"], int(text), operation, message.from_user.id)
+    menu = director_menu() if is_director(message) else seller_menu()
+    await state.clear()
+    if not success:
+        await message.answer(f"❌ Етарли қолдиқ йўқ.\n\n{product_name}: {remaining} та", reply_markup=menu)
+        return
+    shop = get_shop(data["shop_id"])
+    await message.answer(f"✅ {OPERATION_TITLES[operation]} сақланди.\n\n🏪 {shop[1]}\n📦 {product_name}\n🔢 Миқдор: {text} та\n📊 Қолдиқ: {remaining} та", reply_markup=menu)
+
+
+async def show_stock(message, shop_id):
+    shop = get_shop(shop_id)
+    rows = get_shop_stock(shop_id)
+    if not rows:
+        await message.answer(f"📦 {shop[1]}да ҳали қолдиқ йўқ.")
+        return
+    lines = "\n".join(f"• {name}: {quantity} та" for name, quantity in rows)
+    await message.answer(f"📦 {shop[1]} — ҚОЛДИҚ:\n\n{lines}")
 
 
 @dp.message(F.text == "📦 Остаток")
-async def stock_message(
-    message: types.Message
-):
-  await message.answer(
-        "📦 Остаток модули кейинги босқичда "
-        "уланади."
-    )
+async def stock_message(message: types.Message):
+    if is_director(message):
+        await message.answer("Қолдиқ учун дўконни танланг:", reply_markup=shop_keyboard("stock"))
+        return
+    user = get_user(message.from_user.id)
+    if user and user[4]:
+        await show_stock(message, user[4])
+
+
+async def show_daily_report(message, shop_id):
+    conn = db_connect()
+    rows = conn.execute("""SELECT movement_type, COALESCE(SUM(quantity), 0) FROM movements
+                           WHERE shop_id = ? AND substr(created_at, 1, 10) = ? GROUP BY movement_type""", (shop_id, today())).fetchall()
+    conn.close()
+    totals = dict(rows)
+    shop = get_shop(shop_id)
+    await message.answer(f"📊 {shop[1]} — {today()}\n\n📥 Кирим: {totals.get('income', 0)} та\n📤 Сотув: {totals.get('sale', 0)} та\n🗑 Списание: {totals.get('writeoff', 0)} та")
+
+
+@dp.message(F.text == "📊 Ҳисобот")
+async def report_message(message: types.Message):
+    if is_director(message):
+        await message.answer("Ҳисобот учун дўконни танланг:", reply_markup=shop_keyboard("report"))
+        return
+    user = get_user(message.from_user.id)
+    if user and user[4]:
+        await show_daily_report(message, user[4])
 
 
 # =========================================================
